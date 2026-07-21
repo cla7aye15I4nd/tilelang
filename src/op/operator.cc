@@ -88,6 +88,8 @@ Var GetVarFromAccessPtr(const PrimExpr &expr) {
   auto call = expr.as<CallNode>();
   ICHECK(call);
   if (call->op.same_as(builtin::tvm_access_ptr())) {
+    ICHECK_EQ(call->args.size(), 5U)
+        << "tvm_access_ptr expects 5 arguments, but got " << call->args.size();
     auto var = call->args[1].as<VarNode>();
     ICHECK(var);
     return tvm::ffi::GetRef<Var>(var);

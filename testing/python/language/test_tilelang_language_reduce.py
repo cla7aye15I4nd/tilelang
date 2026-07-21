@@ -407,6 +407,26 @@ def test_finalize_reducer_invalid_batch(batch, exc_type, match):
         tl.compile(k, out_idx=-1, pass_configs=_COMPILE_FLAGS)
 
 
+def test_finalize_reducer_rejects_short_tvm_access_ptr():
+    tirx = tilelang.tvm.tirx
+
+    @T.prim_func
+    def kernel():
+        with T.Kernel(1, threads=1):
+            tirx.call_intrin(
+                "handle",
+                tirx.op.Op.get("tl.tileop.finalize_reducer"),
+                tirx.call_intrin(
+                    "handle",
+                    tirx.op.Op.get("tirx.tvm_access_ptr"),
+                    T.int32(0),
+                ),
+            )
+
+    with pytest.raises(Exception, match="tvm_access_ptr expects 5 arguments"):
+        tilelang.transform.LayoutReducer()(tilelang.tvm.IRModule({"main": kernel}))
+
+
 @tilelang.testing.requires_cuda
 def test_reduce_absmax_bf16_noncontiguous_packed_layout_regression():
     num_tokens = 64
