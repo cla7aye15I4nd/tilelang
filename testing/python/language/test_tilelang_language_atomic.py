@@ -826,6 +826,37 @@ def test_atomic_scalar_return_prev():
     run_atomic_scalar_return_prev("atomic_min")
 
 
+@tilelang.testing.requires_cuda
+def test_signed_int64_atomic_minmax_crosses_sign_boundary():
+    @T.prim_func
+    def main(
+        Max: T.Tensor((2,), T.int64),
+        Min: T.Tensor((2,), T.int64),
+        Values: T.Tensor((2,), T.int64),
+        PrevMax: T.Tensor((1,), T.int64),
+        PrevMin: T.Tensor((1,), T.int64),
+    ):
+        with T.Kernel(1, threads=1):
+            T.atomic_max(Max[0], Values[0])
+            PrevMax[0] = T.atomic_max(Max[1], Values[0], return_prev=True)
+            T.atomic_min(Min[0], Values[1])
+            PrevMin[0] = T.atomic_min(Min[1], Values[1], return_prev=True)
+
+    kernel = tilelang.compile(main)
+    max_values = torch.zeros(2, dtype=torch.int64, device="cuda")
+    min_values = torch.full((2,), -1, dtype=torch.int64, device="cuda")
+    operands = torch.tensor([-1, 0], dtype=torch.int64, device="cuda")
+    prev_max = torch.empty(1, dtype=torch.int64, device="cuda")
+    prev_min = torch.empty(1, dtype=torch.int64, device="cuda")
+
+    kernel(max_values, min_values, operands, prev_max, prev_min)
+
+    torch.testing.assert_close(max_values, torch.zeros_like(max_values))
+    torch.testing.assert_close(min_values, torch.full_like(min_values, -1))
+    torch.testing.assert_close(prev_max, torch.zeros_like(prev_max))
+    torch.testing.assert_close(prev_min, torch.full_like(prev_min, -1))
+
+
 def atomic_addx2_return_prev_program(dtype=T.float32):
     @T.prim_func
     def main(Dst: T.Tensor((2,), dtype), Val: T.Tensor((2,), dtype), Prev: T.Tensor((2,), dtype)):

@@ -35,6 +35,14 @@ template <> struct normalize_atomic_type<int64_t> {
   using type = unsigned long long;
 };
 
+template <typename T> struct normalize_atomic_minmax_type {
+  using type = typename normalize_atomic_type<T>::type;
+};
+
+template <> struct normalize_atomic_minmax_type<int64_t> {
+  using type = int64_t;
+};
+
 template <typename T1, typename T2> TL_DEVICE T1 cuda_cast(T2 val) {
   return T1(val);
 }
@@ -317,7 +325,7 @@ TL_DEVICE float4 AtomicAddx4ScalarRet(dst_dtype *ref, float4 add_val) {
 template <typename T1, typename T2>
 TL_DEVICE void AtomicMax(T1 *ref, T2 val,
                          int memory_order = int(cuda::memory_order_relaxed)) {
-  using NT1 = typename normalize_atomic_type<T1>::type;
+  using NT1 = typename normalize_atomic_minmax_type<T1>::type;
   T1 *address = ref;
   if constexpr (std::is_same_v<NT1, half> ||
                 std::is_same_v<NT1, __nv_bfloat16>) {
@@ -348,7 +356,7 @@ TL_DEVICE void AtomicMax(T1 *ref, T2 val,
 template <typename T1, typename T2>
 TL_DEVICE T1 AtomicMaxRet(T1 *ref, T2 val,
                           int memory_order = int(cuda::memory_order_relaxed)) {
-  using NT1 = typename normalize_atomic_type<T1>::type;
+  using NT1 = typename normalize_atomic_minmax_type<T1>::type;
   T1 *address = ref;
   if constexpr (std::is_same_v<NT1, half> ||
                 std::is_same_v<NT1, __nv_bfloat16>) {
@@ -379,7 +387,7 @@ TL_DEVICE T1 AtomicMaxRet(T1 *ref, T2 val,
 template <typename T1, typename T2>
 TL_DEVICE void AtomicMin(T1 *ref, T2 val,
                          int memory_order = int(cuda::memory_order_relaxed)) {
-  using NT1 = typename normalize_atomic_type<T1>::type;
+  using NT1 = typename normalize_atomic_minmax_type<T1>::type;
   T1 *address = ref;
   if constexpr (std::is_same_v<NT1, half> ||
                 std::is_same_v<NT1, __nv_bfloat16>) {
@@ -410,7 +418,7 @@ TL_DEVICE void AtomicMin(T1 *ref, T2 val,
 template <typename T1, typename T2>
 TL_DEVICE T1 AtomicMinRet(T1 *ref, T2 val,
                           int memory_order = int(cuda::memory_order_relaxed)) {
-  using NT1 = typename normalize_atomic_type<T1>::type;
+  using NT1 = typename normalize_atomic_minmax_type<T1>::type;
   T1 *address = ref;
   if constexpr (std::is_same_v<NT1, half> ||
                 std::is_same_v<NT1, __nv_bfloat16>) {
