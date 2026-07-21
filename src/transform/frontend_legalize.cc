@@ -67,13 +67,33 @@ private:
   }
 
   Stmt VisitStmt_(const BindNode *node) final {
-    let_bindings_[node->var.get()] = node->value;
-    return Evaluate(Integer(0));
+    PrimExpr value = VisitExpr(node->value);
+    if (SideEffect(value) <= CallEffectKind::kReadState) {
+      let_bindings_[node->var.get()] = value;
+      return Evaluate(Integer(0));
+    }
+    if (value.same_as(node->value)) {
+      return ffi::GetRef<Stmt>(node);
+    }
+    auto n = CopyOnWrite(node);
+    n->value = std::move(value);
+    return Stmt(n);
   }
 
   PrimExpr VisitExpr_(const LetNode *node) final {
-    let_bindings_[node->var.get()] = node->value;
-    return arith::IRMutatorWithAnalyzer::VisitExpr(node->body);
+    PrimExpr value = VisitExpr(node->value);
+    if (SideEffect(value) > CallEffectKind::kReadState) {
+      PrimExpr body = VisitExpr(node->body);
+      if (value.same_as(node->value) && body.same_as(node->body)) {
+        return ffi::GetRef<PrimExpr>(node);
+      }
+      return Let(node->var, std::move(value), std::move(body), node->span);
+    }
+
+    let_bindings_[node->var.get()] = value;
+    PrimExpr body = VisitExpr(node->body);
+    let_bindings_.erase(node->var.get());
+    return body;
   }
 
   int parallel_for_scope_ = 0;

@@ -2,6 +2,7 @@ from tilelang import tvm as tvm
 import tilelang as tl
 import tilelang.language as T
 import tilelang.testing
+from tvm.tirx.stmt_functor import post_order_visit
 
 
 def _check(original, transformed):
@@ -46,6 +47,24 @@ def test_parallel_scope():
                 A[i] = T.float32(1.0)
 
     _check(before, expected)
+
+
+def test_effectful_binding_is_not_duplicated():
+    @T.prim_func
+    def before(A: T.Tensor((2,), T.uint32)):
+        value = T.rng_rand()
+        A[0] = value
+        A[1] = value
+
+    mod = tvm.IRModule.from_expr(before.with_attr("global_symbol", "main"))
+    mod = tl.transform.LetInline()(mod)
+    calls = []
+    post_order_visit(
+        mod["main"].body,
+        lambda node: calls.append(node) if isinstance(node, tvm.tirx.Call) and node.op.same_as(T.rng_rand().op) else None,
+    )
+
+    assert len(calls) == 1
 
 
 if __name__ == "__main__":
