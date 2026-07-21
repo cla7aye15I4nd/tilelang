@@ -57,6 +57,17 @@ void InitScanOpNode(ScanOpNode *node, const Array<PrimExpr> &args,
   ICHECK_EQ(args.size(), 4);
   auto src_access = NormalizeToAccessRegion(args[0], kAccessRead);
   auto dst_access = NormalizeToAccessRegion(args[1], kAccessWrite);
+  ICHECK_EQ(src_access.region->region.size(), dst_access.region->region.size())
+      << "tl." << op_name
+      << " destination region must match source region rank";
+  for (size_t i = 0; i < src_access.region->region.size(); ++i) {
+    ICHECK(StructuralEqual()(src_access.region->region[i]->extent,
+                             dst_access.region->region[i]->extent))
+        << "tl." << op_name
+        << " destination region must match source region extent at dim " << i
+        << ": " << dst_access.region->region[i]->extent << " vs "
+        << src_access.region->region[i]->extent;
+  }
   node->srcRegion_ = src_access.region;
   node->dstRegion_ = dst_access.region;
   node->SetAccessRegions({src_access, dst_access});

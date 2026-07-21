@@ -1,8 +1,10 @@
 from tilelang import tvm as tvm
 import tilelang.testing
 import tilelang as tl
+import pytest
 import torch
 import tilelang.language as T
+from tilelang.utils.language import to_tile_region
 
 
 def _torch_cummax(chunk, dim, reverse):
@@ -543,6 +545,25 @@ def test_scan_offset_subregion():
                 # r0 == 64 is the regressing case (r0 == 0 is already covered by
                 # the full-region region tests above).
                 run_scan_offset_subregion(H, W, 64, 128, op=op, dim=dim, reverse=reverse)
+
+
+def test_raw_scan_rejects_mismatched_destination_region():
+    @T.prim_func
+    def kernel():
+        with T.Kernel(1, threads=1):
+            src = T.alloc_shared((8,), T.float32)
+            dst = T.alloc_shared((4,), T.float32)
+            tvm.tirx.call_intrin(
+                "handle",
+                tvm.tirx.op.Op.get("tl.tileop.cumsum"),
+                to_tile_region(src, access_type="r"),
+                to_tile_region(dst, access_type="w"),
+                0,
+                False,
+            )
+
+    with pytest.raises(Exception, match="destination region must match source region"):
+        tl.lower(kernel, target="c")
 
 
 if __name__ == "__main__":
