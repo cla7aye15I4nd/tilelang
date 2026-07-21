@@ -143,11 +143,11 @@ private:
 
     Array<Buffer> tmem_buffers;
 
-    for (const auto &[data, buffer] : buffer_map_) {
+    for (const Buffer &buffer : alloc_buffers) {
       const auto *ptr_type =
           buffer->data->type_annotation.as<PointerTypeNode>();
-      auto storage_scope = ptr_type->storage_scope;
       ICHECK(ptr_type) << "Buffer Var's type annotation must be of PointerType";
+      auto storage_scope = ptr_type->storage_scope;
       if (storage_scope == "shared.tmem") {
         tmem_buffers.push_back(buffer);
       }
