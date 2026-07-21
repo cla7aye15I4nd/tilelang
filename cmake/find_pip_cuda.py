@@ -19,6 +19,7 @@ import pathlib
 import site
 import subprocess
 import sys
+import tempfile
 
 
 def _nvcc_name() -> str:
@@ -163,17 +164,37 @@ def _ensure_cuda_stub(cu_dir):
     if stub.exists():
         return
     stubs_dir.mkdir(parents=True, exist_ok=True)
-    src = stubs_dir / "_stub.c"
+    src = None
+    output = None
     try:
-        src.write_text("void cuGetErrorString(void){}\n")
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            prefix="tilelang_cuda_stub_",
+            suffix=".c",
+            dir=stubs_dir,
+            delete=False,
+        ) as src_file:
+            src_file.write("void cuGetErrorString(void){}\n")
+            src = pathlib.Path(src_file.name)
+        with tempfile.NamedTemporaryFile(
+            prefix="tilelang_cuda_stub_",
+            suffix=".so",
+            dir=stubs_dir,
+            delete=False,
+        ) as output_file:
+            output = pathlib.Path(output_file.name)
         subprocess.check_call(
-            ["gcc", "-shared", "-o", str(stub), str(src)],
+            ["gcc", "-shared", "-o", str(output), str(src)],
             stderr=subprocess.DEVNULL,
         )
+        os.link(output, stub)
     except Exception:
         pass
     finally:
-        src.unlink(missing_ok=True)
+        if src is not None:
+            src.unlink(missing_ok=True)
+        if output is not None:
+            output.unlink(missing_ok=True)
 
 
 def _library_dir(cu_dir: pathlib.Path) -> pathlib.Path:
