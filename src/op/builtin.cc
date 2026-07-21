@@ -722,19 +722,19 @@ TIR_DEFINE_TL_BUILTIN(warp_reduce_bitor)
 TIR_DEFINE_TL_BUILTIN(ds_read_tr16_b64)
     .set_num_inputs(1)
     .set_attr<TCallEffectKind>("TCallEffectKind",
-                               Integer(CallEffectKind::kPure));
+                               Integer(CallEffectKind::kReadState));
 
 // ds_read_tr8_b64(smem_ptr) -> uint32x2
 // gfx950 LDS transpose read: 64-bit, 8-element transpose (FP32 MFMA)
 TIR_DEFINE_TL_BUILTIN(ds_read_tr8_b64)
     .set_num_inputs(1)
     .set_attr<TCallEffectKind>("TCallEffectKind",
-                               Integer(CallEffectKind::kPure));
+                               Integer(CallEffectKind::kReadState));
 
 // __ldg(BufferLoad | Buffer, idx?) -> value
-// Treat as a pure call that returns the loaded value.
+// The call reads mutable global memory.
 TIR_DEFINE_TL_BUILTIN(__ldg).set_num_inputs(-1).set_attr<TCallEffectKind>(
-    "TCallEffectKind", Integer(CallEffectKind::kPure));
+    "TCallEffectKind", Integer(CallEffectKind::kReadState));
 
 // __ffs(value) -> one-based least-significant set-bit position, or 0.
 TIR_DEFINE_TL_BUILTIN(__ffs).set_num_inputs(1).set_attr<TCallEffectKind>(
@@ -747,17 +747,17 @@ TIR_DEFINE_TL_BUILTIN(__fns).set_num_inputs(3).set_attr<TCallEffectKind>(
 // ldg32(address, predicate(optional)) -> 32-bit value
 // Global memory load with 32-bit vector width
 TIR_DEFINE_TL_BUILTIN(ldg32).set_num_inputs(-1).set_attr<TCallEffectKind>(
-    "TCallEffectKind", Integer(CallEffectKind::kPure));
+    "TCallEffectKind", Integer(CallEffectKind::kReadState));
 
 // ldg64(address, predicate(optional)) -> 64-bit value
 // Global memory load with 64-bit vector width
 TIR_DEFINE_TL_BUILTIN(ldg64).set_num_inputs(-1).set_attr<TCallEffectKind>(
-    "TCallEffectKind", Integer(CallEffectKind::kPure));
+    "TCallEffectKind", Integer(CallEffectKind::kReadState));
 
 // ldg128(address, predicate(optional)) -> 128-bit value
 // Global memory load with 128-bit vector width
 TIR_DEFINE_TL_BUILTIN(ldg128).set_num_inputs(-1).set_attr<TCallEffectKind>(
-    "TCallEffectKind", Integer(CallEffectKind::kPure));
+    "TCallEffectKind", Integer(CallEffectKind::kReadState));
 
 // lds32(address) -> 32-bit value
 // Shared memory load with 32-bit vector width
