@@ -306,14 +306,36 @@ private:
   ffi::Optional<PrimExpr>
       current_predicate_; // Track predicate context for nested loads
 
+  bool IsSupportedAccessWidth_(int bits) const {
+    return bits == 32 || bits == 64 || bits == 128 || bits == 256;
+  }
+
+  bool CanLowerLoadPredicated_(const BufferLoad &load) const {
+    if (!IsGlobalBuffer(load->buffer)) {
+      return false;
+    }
+    ICHECK_EQ(load->indices.size(), 1U)
+        << "Expected flattened buffer with single index, but got "
+        << load->indices.size() << " indices for buffer " << load->buffer->name;
+    if (const auto *ramp = load->indices[0].as<RampNode>()) {
+      const auto *stride = ramp->stride.as<IntImmNode>();
+      if (stride == nullptr || stride->value != 1) {
+        return false;
+      }
+      return IsSupportedAccessWidth_(load->indices[0].dtype().lanes() *
+                                     load->buffer->dtype.bits());
+    }
+    return IsSupportedAccessWidth_(load->buffer->dtype.bits());
+  }
+
   bool CanEvaluateStoreValueOutsidePredicate(const PrimExpr &value) {
     bool safe = true;
     PostOrderVisit(value, [&](const ObjectRef &node) {
       if (!safe) {
         return;
       }
-      if (const auto *load = node.as<BufferLoadNode>()) {
-        safe = IsGlobalBuffer(load->buffer);
+      if (const auto *load_node = node.as<BufferLoadNode>()) {
+        safe = CanLowerLoadPredicated_(GetRef<BufferLoad>(load_node));
       }
     });
     return safe;

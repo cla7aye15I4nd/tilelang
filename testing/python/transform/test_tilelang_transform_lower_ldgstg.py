@@ -244,6 +244,53 @@ def test_predicated_store_with_shared_load_keeps_explicit_guard():
     assert not _check_has_intrinsic(mod, "stg128"), "Predicated stg128 would evaluate the shared load before the predicate"
 
 
+def test_predicated_store_with_unsupported_global_load_keeps_explicit_guard():
+    """Do not hoist a global load that has no predicated ldg intrinsic."""
+
+    @T.prim_func
+    def func(A: T.Buffer((128,), "float16"), B: T.Buffer((128,), "float32"), pred: T.int32):
+        for i in T.thread_binding(128, "threadIdx.x"):
+            with T.If(pred > 0), T.Then():
+                B[i] = T.Cast("float32", A[i])
+
+    mod = tvm.IRModule.from_expr(func.with_attr("global_symbol", "main"))
+    mod = _apply_passes(mod, enable_predicated=True)
+
+    has_if = [False]
+
+    def visitor(obj):
+        if isinstance(obj, tirx.IfThenElse):
+            has_if[0] = True
+
+    tirx.stmt_functor.post_order_visit(mod["main"].body, visitor)
+    assert has_if[0], "Expected explicit IfThenElse to keep unsupported load guarded"
+    assert not _check_has_intrinsic(mod, "stg32"), "Predicated stg32 would evaluate an unguarded float16 load"
+
+
+def test_predicated_store_with_strided_global_load_keeps_explicit_guard():
+    """Do not hoist a non-contiguous global load out of its guard."""
+
+    @T.prim_func
+    def func(A: T.Buffer((256,), "float32"), B: T.Buffer((128,), "float32"), pred: T.int32):
+        for i in T.thread_binding(32, "threadIdx.x"):
+            for j in T.vectorized(4):
+                with T.If(pred > 0), T.Then():
+                    B[i * 4 + j] = A[i * 8 + j * 2]
+
+    mod = tvm.IRModule.from_expr(func.with_attr("global_symbol", "main"))
+    mod = _apply_passes(mod, enable_predicated=True)
+
+    has_if = [False]
+
+    def visitor(obj):
+        if isinstance(obj, tirx.IfThenElse):
+            has_if[0] = True
+
+    tirx.stmt_functor.post_order_visit(mod["main"].body, visitor)
+    assert has_if[0], "Expected explicit IfThenElse to keep strided load guarded"
+    assert not _check_has_intrinsic(mod, "stg128"), "Predicated stg128 would evaluate an unguarded strided load"
+
+
 def test_predicated_disabled():
     """Test that predicated lowering can be disabled."""
 
