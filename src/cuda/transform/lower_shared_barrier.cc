@@ -41,6 +41,7 @@ private:
   Stmt VisitStmt_(const SBlockNode *op) final {
     SBlock block = GetRef<SBlock>(op);
     Array<Buffer> alloc_buffers = op->alloc_buffers;
+    bool has_cluster_barrier = false;
 
     // Record the mapping from buffer data var to buffer for later lookup
     for (auto buffer : alloc_buffers) {
@@ -63,7 +64,7 @@ private:
           storage_scope == "shared.cluster_barrier") {
         barrier_buffers.push_back(buffer);
         if (storage_scope == "shared.cluster_barrier") {
-          has_cluster_barrier_ = true;
+          has_cluster_barrier = true;
         }
       }
     }
@@ -147,7 +148,7 @@ private:
         Evaluate(Call(DataType::Handle(), ptx_fence_barrier_init(), {})));
     new_body.push_back(Evaluate(
         Call(DataType::Handle(), builtin::tvm_storage_sync(),
-             {StringImm(has_cluster_barrier_ ? "cluster" : "shared")})));
+             {StringImm(has_cluster_barrier ? "cluster" : "shared")})));
     new_body.push_back(block->body);
 
     block.CopyOnWrite()->body = SeqStmt(new_body);
@@ -195,8 +196,6 @@ private:
   std::unordered_map<Var, Buffer, ObjectPtrHash, ObjectPtrEqual> buffer_map_;
   // Disable shuffle elect for the warp specialized kernel
   bool disable_shuffle_elect_;
-  // Whether the block has a cluster barrier
-  bool has_cluster_barrier_ = false;
 };
 
 PrimFunc LowerSharedBarrier(PrimFunc f, bool disable_shuffle_elect) {

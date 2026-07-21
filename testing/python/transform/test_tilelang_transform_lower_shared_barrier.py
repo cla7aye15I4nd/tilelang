@@ -121,6 +121,49 @@ def test_no_barrier_is_noop():
     assert len(_collect_fence_barrier_init(body)) == 0
 
 
+def test_sibling_blocks_keep_barrier_sync_scope_separate():
+    """A cluster barrier in one block must not affect a later sibling block."""
+
+    @T.prim_func
+    def cluster_func():
+        with T.Kernel(1, threads=32):
+            cluster_barrier = T.alloc_cluster_barrier([1])  # noqa: F841
+
+    @T.prim_func
+    def shared_func():
+        with T.Kernel(1, threads=32):
+            shared_barrier = T.alloc_barrier([1])  # noqa: F841
+
+    def get_barrier_block(func):
+        mod = tvm.IRModule.from_expr(func.with_attr("global_symbol", "main"))
+        mod = tvm.tirx.transform.BindTarget(auto_target)(mod)
+        mod = tl.transform.MaterializeKernelLaunch()(mod)
+        blocks = _collect_barrier_blocks(mod["main"].body)
+        assert len(blocks) == 1
+        return blocks[0]
+
+    thread_var = tvm.tirx.Var("threadIdx.x", "int32")
+    thread_iter = tvm.tirx.IterVar(
+        tvm.ir.Range(0, 32), thread_var, tvm.tirx.IterVar.ThreadIndex, "threadIdx.x"
+    )
+    body = tvm.tirx.AttrStmt(
+        thread_iter,
+        "thread_extent",
+        32,
+        tvm.tirx.SeqStmt(
+            [
+                get_barrier_block(cluster_func),
+                get_barrier_block(shared_func),
+            ]
+        ),
+    )
+    func = tvm.tirx.PrimFunc([], body).with_attr("global_symbol", "main")
+    mod = tl.cuda.transform.LowerSharedBarrier()(tvm.IRModule.from_expr(func))
+
+    sync_scopes = [str(call.args[0].value) for call in _collect_storage_syncs(mod["main"].body)]
+    assert sync_scopes == ["cluster", "shared"]
+
+
 def test_plan_update_keeps_barrier_init_with_tcgen05_no_tma():
     """Regression for tcgen05 no-TMA kernels after pass reordering."""
 
