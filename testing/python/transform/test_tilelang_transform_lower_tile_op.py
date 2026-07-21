@@ -1,5 +1,6 @@
 """Tests for TileLang `LowerTileOp` copy annotations affecting cp.async sync."""
 
+import pytest
 import tilelang as tl
 import tilelang.language as T
 import tilelang.testing
@@ -403,6 +404,22 @@ def test_cpu_legitimate_v_thread_param_is_preserved():
     body_refs = [var for var in _vars_of(func.body) if _var_name(var) == "v_thread"]
     assert body_refs, "the body must still read the v_thread parameter"
     assert all(var.same_as(original_param) for var in body_refs)
+
+
+def test_layout_inference_rejects_zero_thread_extent():
+    target = tvm.target.Target({"kind": "cuda", "arch": "sm_80"})
+
+    @T.prim_func
+    def before(B: T.Tensor((8,), T.int32)):
+        T.func_attr({"global_symbol": "main", "target": target})
+        T.launch_thread("blockIdx.x", 1)
+        T.launch_thread("threadIdx.x", 0)
+        for i in T.Parallel(8):
+            B[i] = i
+
+    mod = tvm.IRModule.from_expr(before)
+    with target, pytest.raises(Exception, match="thread extent must be positive"):
+        tl.transform.LayoutInference()(mod)
 
 
 if __name__ == "__main__":

@@ -28,6 +28,7 @@
 
 #include <tvm/tirx/stmt_functor.h>
 
+#include <limits>
 #include <utility>
 
 #include "../op/utils.h"
@@ -186,6 +187,9 @@ public:
   LoopPartitioner() = default;
 
   Fragment Partition(const For &op, int num_thread, int vectorize_size) {
+    ICHECK_GT(num_thread, 0) << "Loop partition thread extent must be positive";
+    ICHECK_GT(vectorize_size, 0)
+        << "Loop partition vectorize size must be positive";
     this->VisitStmt(op);
     DataType dtype = DataType::Int(32);
     if (!loop_vars_.empty()) {
@@ -246,15 +250,26 @@ private:
 
 Fragment PlanLoopPartition(const For &op, size_t num_thread,
                            int vectorize_size) {
+  ICHECK_GT(num_thread, 0U) << "Loop partition thread extent must be positive";
+  ICHECK_LE(num_thread, static_cast<size_t>(std::numeric_limits<int>::max()))
+      << "Loop partition thread extent exceeds the supported int range";
   LoopPartitioner partitioner;
-  return partitioner.Partition(op, num_thread, vectorize_size);
+  return partitioner.Partition(op, static_cast<int>(num_thread),
+                               vectorize_size);
 }
 
 Fragment PlanLoopPartition(const For &op, int vectorize_size,
                            const Range &thread_range) {
-  size_t num_thread = *as_const_int(thread_range->extent);
+  const int64_t *extent = as_const_int(thread_range->extent);
+  ICHECK(extent != nullptr)
+      << "Loop partition thread extent must be a constant, but got "
+      << thread_range->extent;
+  ICHECK_GT(*extent, 0) << "Loop partition thread extent must be positive";
+  ICHECK_LE(*extent, std::numeric_limits<int>::max())
+      << "Loop partition thread extent exceeds the supported int range";
   LoopPartitioner partitioner;
-  Fragment fragment = partitioner.Partition(op, num_thread, vectorize_size);
+  Fragment fragment =
+      partitioner.Partition(op, static_cast<int>(*extent), vectorize_size);
   return fragment->BindThreadRange(thread_range);
 }
 
