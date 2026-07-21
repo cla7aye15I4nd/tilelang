@@ -132,5 +132,28 @@ def test_gemm_f32_tt():
     run_gemm_compile(128, 128, 128, 64, 64, 64, trans_A=True, trans_B=True)
 
 
+@tilelang.testing.requires_llvm
+def test_sliced_gemm_clear_preserves_values_outside_destination_region():
+    @T.prim_func
+    def func(
+        A: T.Tensor((2, 2), T.float32),
+        B: T.Tensor((2, 2), T.float32),
+        C: T.Tensor((4, 4), T.float32),
+    ):
+        with T.Kernel():
+            T.gemm(A, B, C[1:3, 1:3], clear_accum=True)
+
+    kernel = tilelang.compile(func, target="llvm", execution_backend="tvm_ffi")
+    A = torch.tensor([[1.0, 2.0], [3.0, 4.0]])
+    B = torch.tensor([[5.0, 6.0], [7.0, 8.0]])
+    C = torch.full((4, 4), 7.0)
+
+    kernel(A, B, C)
+
+    expected = torch.full((4, 4), 7.0)
+    expected[1:3, 1:3] = A @ B
+    torch.testing.assert_close(C, expected)
+
+
 if __name__ == "__main__":
     tilelang.testing.main()
