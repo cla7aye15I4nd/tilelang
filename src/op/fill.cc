@@ -110,18 +110,24 @@ Fill::Fill(Array<PrimExpr> args, Map<String, ObjectRef> annotations) {
       << " != " << node->dst->shape.size();
   for (int i = 0; i < node->region.size(); i++) {
     // bound check if region is static
-    if (const auto *min_imm = node->region[i]->min.as<IntImmNode>()) {
-      int64_t min = min_imm->value;
-      ICHECK_GE(min, 0) << "region[" << i << "] = " << min << " < 0";
+    const auto *min_imm = node->region[i]->min.as<IntImmNode>();
+    if (min_imm != nullptr) {
+      ICHECK_GE(min_imm->value, 0)
+          << "region[" << i << "] = " << min_imm->value << " < 0";
     }
     if (const auto *extent_imm = node->region[i]->extent.as<IntImmNode>()) {
-      // Only perform the upper-bound check when the destination shape
-      // extent is also statically known. If the shape is symbolic (e.g., Var),
-      // skip this static check to avoid invalid downcasts.
+      // Only perform the upper-bound check when the destination shape extent
+      // is also statically known. If the shape is symbolic (e.g., Var), skip
+      // this static check to avoid invalid downcasts.
       if (const auto *shape_imm = node->dst->shape[i].as<IntImmNode>()) {
-        ICHECK_LE(extent_imm->value, shape_imm->value)
-            << "region[" << i << "] = " << extent_imm->value << " > "
-            << node->dst->shape[i];
+        int64_t available_extent = shape_imm->value;
+        if (min_imm != nullptr) {
+          available_extent -= min_imm->value;
+        }
+        ICHECK_LE(extent_imm->value, available_extent)
+            << "region[" << i << "] has min " << node->region[i]->min
+            << " and extent " << extent_imm->value
+            << ", which is outside destination shape " << node->dst->shape[i];
       }
     }
   }

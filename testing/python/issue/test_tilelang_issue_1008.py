@@ -1,6 +1,7 @@
 import torch
 import tilelang
 import tilelang.testing
+import pytest
 from tilelang import language as T
 
 
@@ -45,6 +46,16 @@ def test_fill_with_dynamic_region_kernel():
     kernel = _fill_with_dynamic_region_kernel()
     x = torch.zeros((256,), dtype=torch.int64, device="cuda")
     kernel(x)
+
+
+def test_fill_rejects_static_region_past_buffer_extent():
+    @T.prim_func
+    def kernel(A: T.Tensor((8,), T.float32)):
+        with T.Kernel(1, threads=1):
+            T.fill(A[7:15], 0)
+
+    with pytest.raises(Exception, match="outside destination shape"):
+        tilelang.lower(kernel, target="c")
 
 
 if __name__ == "__main__":
