@@ -100,5 +100,15 @@ def test_general_matmul_matmul_emit_configs():
     run_general_matmul_matmul_emit_configs(128, 128, 128)
 
 
+def test_propagate_multiple_outputs_uses_each_output_shape():
+    A = te.placeholder((8,), name="A", dtype=T.float32)
+    B, C = te.compute((8,), lambda i: (A[i] + 1, A[i] * 2), name="BC")
+    node = PrimFuncNode(te.create_prim_func([A, B, C]))
+
+    assert len(node.input_buffers) == 1
+    assert len(node.output_buffers) == 2
+    assert node.propagate_outputs([4]) == [[4], [4]]
+
+
 if __name__ == "__main__":
     tilelang.testing.main()

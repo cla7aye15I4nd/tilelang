@@ -252,7 +252,7 @@ class PrimFuncNode(Node):
         reduction_blocks = get_reduction_blocks(self.sch, blocks)
         if reduction_blocks is None:
             self.reduction_block = None
-            self.schedule_stages.append(*self.output_blocks)
+            self.schedule_stages.extend(self.output_blocks)
         else:
             # analysis on the last reduction block
             self.reduction_block = reduction_blocks[-1]
@@ -385,7 +385,7 @@ class PrimFuncNode(Node):
         results = []
         for i, arg in enumerate(self.args[read_idx_offset:]):
             # should not exceed original shape
-            trimmed_shape = list(map(min, zip(shapes[arg.name], self.input_buffers[i].shape)))
+            trimmed_shape = list(map(min, zip(shapes[arg.name], self.output_buffers[i].shape)))
             results.append(trimmed_shape)
         return results
 
