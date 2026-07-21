@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import threading
 
 import pytest
 import tvm_ffi
@@ -294,6 +295,52 @@ def test_nested_session_disables_and_restores_cache_state(initially_enabled):
             CacheState.enable()
         else:
             CacheState.disable()
+
+
+def test_concurrent_sessions_do_not_overlap_process_global_state(tmp_path):
+    first_entered = threading.Event()
+    release_first = threading.Event()
+    second_attempting = threading.Event()
+    second_entered = threading.Event()
+    errors = []
+
+    def run_first():
+        try:
+            with iket.session(output_dir=tmp_path / "first", runtime_payloads=True):
+                first_entered.set()
+                release_first.wait(timeout=5)
+        except Exception as exc:  # pragma: no cover - reported in the main thread
+            errors.append(exc)
+
+    def run_second():
+        try:
+            first_entered.wait(timeout=5)
+            second_attempting.set()
+            with iket.session(output_dir=tmp_path / "second", runtime_payloads=False):
+                second_entered.set()
+                assert iket.output_dir() == (tmp_path / "second").absolute()
+                assert not iket.runtime_payloads_enabled()
+        except Exception as exc:  # pragma: no cover - reported in the main thread
+            errors.append(exc)
+
+    first = threading.Thread(target=run_first)
+    second = threading.Thread(target=run_second)
+    first.start()
+    second.start()
+
+    assert first_entered.wait(timeout=5)
+    assert second_attempting.wait(timeout=5)
+    assert not second_entered.wait(timeout=0.1)
+    assert iket.output_dir() == (tmp_path / "first").absolute()
+
+    release_first.set()
+    first.join(timeout=5)
+    second.join(timeout=5)
+
+    assert not first.is_alive()
+    assert not second.is_alive()
+    assert second_entered.is_set()
+    assert errors == []
 
 
 def test_session_restores_an_absent_callback():

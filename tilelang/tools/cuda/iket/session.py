@@ -107,14 +107,17 @@ class _Session:
         self._previous_cache_enabled = False
         self._entered = False
         self._enabled_by_session = False
+        self._owns_state_lock = False
 
     def __enter__(self):
+        _state_lock.acquire()
         if self._entered:
+            _state_lock.release()
             raise RuntimeError("An IKET session object cannot be entered more than once at a time")
-        self._previous_output_dir, self._previous_env_output_dir = _snapshot_output_dir()
-        self._previous_runtime_payloads = runtime_payloads_enabled()
-        self._previous_cache_enabled = CacheState.is_enabled()
         try:
+            self._previous_output_dir, self._previous_env_output_dir = _snapshot_output_dir()
+            self._previous_runtime_payloads = runtime_payloads_enabled()
+            self._previous_cache_enabled = CacheState.is_enabled()
             if self.output_dir is not None:
                 set_output_dir(self.output_dir)
             if self.runtime_payloads is not None:
@@ -135,8 +138,10 @@ class _Session:
             finally:
                 self._enabled_by_session = False
                 self._restore_state()
+            _state_lock.release()
             raise
         self._entered = True
+        self._owns_state_lock = True
         return self
 
     def __exit__(self, exc_type, exc, tb):
@@ -147,6 +152,9 @@ class _Session:
             self._enabled_by_session = False
             self._restore_state()
             self._entered = False
+            if self._owns_state_lock:
+                self._owns_state_lock = False
+                _state_lock.release()
         return False
 
     def _restore_state(self) -> None:
