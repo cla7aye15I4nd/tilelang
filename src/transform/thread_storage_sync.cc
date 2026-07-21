@@ -1439,6 +1439,15 @@ private:
       return;
     syncs_inserted_.insert(obj);
   }
+  IterVar FindThread(const Array<IterVar> &threads,
+                     const std::string &thread_tag) const {
+    for (const IterVar &thread : threads) {
+      if (thread->thread_tag == thread_tag) {
+        return thread;
+      }
+    }
+    return IterVar();
+  }
   bool PointerAccessIsDisjoint(const AccessEntry &lhs, const AccessEntry &rhs) {
     if (lhs.touched.size() != 1 || rhs.touched.size() != 1) {
       return false;
@@ -1448,21 +1457,29 @@ private:
     arith::Analyzer analyzer;
 
     struct ThreadVarInfo {
+      const char *thread_tag;
       const char *name_prev;
       const char *name_curr;
     } thread_vars[] = {
-        {"tx1", "tx2"},
-        {"ty1", "ty2"},
-        {"tz1", "tz2"},
+        {"threadIdx.x", "tx1", "tx2"},
+        {"threadIdx.y", "ty1", "ty2"},
+        {"threadIdx.z", "tz1", "tz2"},
     };
     PrimExpr lhs_min = analyzer.Simplify(lhs.touched[0].min());
     PrimExpr lhs_max = analyzer.Simplify(lhs.touched[0].max());
     PrimExpr rhs_min = analyzer.Simplify(rhs.touched[0].min());
     PrimExpr rhs_max = analyzer.Simplify(rhs.touched[0].max());
-    for (unsigned idx = 0; idx != 3; ++idx) {
-      auto &info = thread_vars[idx];
-      Var old_prev_var = lhs.threads[lhs.threads.size() + idx - 3]->var;
-      Var old_curr_var = rhs.threads[rhs.threads.size() + idx - 3]->var;
+    for (const auto &info : thread_vars) {
+      IterVar prev_thread = FindThread(lhs.threads, info.thread_tag);
+      IterVar curr_thread = FindThread(rhs.threads, info.thread_tag);
+      if (prev_thread.defined() != curr_thread.defined()) {
+        return false;
+      }
+      if (!prev_thread.defined()) {
+        continue;
+      }
+      Var old_prev_var = prev_thread->var;
+      Var old_curr_var = curr_thread->var;
       Var prev_var(info.name_prev, old_prev_var.dtype());
       Var curr_var(info.name_curr, old_curr_var.dtype());
       lhs_min = Substitute(lhs_min, {{old_prev_var, prev_var}});
@@ -1750,23 +1767,36 @@ private:
       PrimExpr thread_condition = Bool(false);
       Map<Var, PrimExpr> prev_sub, curr_sub;
 
-      const char *thread_names[] = {"tx", "ty", "tz"};
-      for (unsigned idx = 0; idx != 3; ++idx) {
-        Var old_prev_var = prev.threads[prev.threads.size() + idx - 3]->var;
-        Var old_curr_var = curr.threads[curr.threads.size() + idx - 3]->var;
+      struct ThreadVarInfo {
+        const char *thread_tag;
+        const char *name;
+      } thread_vars[] = {
+          {"threadIdx.x", "tx"},
+          {"threadIdx.y", "ty"},
+          {"threadIdx.z", "tz"},
+      };
+      for (const auto &info : thread_vars) {
+        IterVar prev_thread = FindThread(prev.threads, info.thread_tag);
+        IterVar curr_thread = FindThread(curr.threads, info.thread_tag);
+        if (prev_thread.defined() != curr_thread.defined()) {
+          return true;
+        }
+        if (!prev_thread.defined()) {
+          continue;
+        }
+        Var old_prev_var = prev_thread->var;
+        Var old_curr_var = curr_thread->var;
 
         if (same_access_type) {
           // For WAW/RAR: use a single shared Var object for both prev and curr
           // This allows the analyzer to see they reference the same thread
-          Var shared_var(thread_names[idx], old_prev_var.dtype());
+          Var shared_var(info.name, old_prev_var.dtype());
           prev_sub.Set(old_prev_var, shared_var);
           curr_sub.Set(old_curr_var, shared_var);
         } else {
           // For RAW/WAR: use different Var objects to model cross-thread access
-          Var prev_var(std::string(thread_names[idx]) + "1",
-                       old_prev_var.dtype());
-          Var curr_var(std::string(thread_names[idx]) + "2",
-                       old_curr_var.dtype());
+          Var prev_var(std::string(info.name) + "1", old_prev_var.dtype());
+          Var curr_var(std::string(info.name) + "2", old_curr_var.dtype());
           thread_condition =
               tirx::Or(thread_condition, tirx::NE(prev_var, curr_var));
           prev_sub.Set(old_prev_var, prev_var);

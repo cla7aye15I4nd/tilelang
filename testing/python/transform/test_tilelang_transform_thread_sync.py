@@ -17,6 +17,22 @@ def run_passes(func: tvm.tirx.PrimFunc):
     return tilelang.transform.ThreadSync("shared")(mod)
 
 
+def test_thread_sync_handles_single_thread_dimension():
+    """ThreadSync must not require explicit unit y/z thread dimensions."""
+
+    @T.prim_func(private=True)
+    def func():
+        A_shared = T.alloc_buffer((32,), dtype="float32", scope="shared")
+        A_local = T.alloc_buffer((1,), dtype="float32", scope="local")
+        tx = T.launch_thread("threadIdx.x", 32)
+        A_shared[tx] = T.float32(1)
+        A_local[0] = A_shared[31 - tx]
+
+    mod = tvm.IRModule({"main": func})
+    mod = tilelang.transform.ThreadSync("shared")(mod)
+    assert 'T.tvm_storage_sync("shared")' in str(mod.script())
+
+
 @tilelang.testing.requires_cuda
 def test_no_sync_between_atomic_adds_to_shared():
     """Atomic WAW (and RMW) should not trigger thread-level sync insertion.
