@@ -40,6 +40,29 @@ def test_local_to_memory():
     _check(before, after)
 
 
+def test_nonzero_vectorized_min_uses_zero_based_cast_buffer_index():
+    @T.prim_func
+    def before(b: T.Tensor[(8,), T.float4_e2m1fn]):
+        b_frag = T.alloc_local((8,), T.float32)
+        for i in T.vectorized(4, 8):
+            b[i] = b_frag[i]
+
+    @T.prim_func
+    def after(b: T.Tensor[(8,), T.float4_e2m1fn]):
+        b_frag = T.alloc_local((8,), T.float32)
+        with T.sblock("decoupled_cast"):
+            T.sblock_attr({"lexical_alloc_scope": 1})
+            T.reads()
+            T.writes()
+            b_local_cast = T.decl_buffer((4,), T.float4_e2m1fn, scope="local")
+            for i in T.vectorized(4, 8):
+                b_local_cast[i - 4] = T.cast(b_frag[i], T.float4_e2m1fn)
+            for i_copy in T.vectorized(4, 8):
+                b[i_copy] = b_local_cast[i_copy - 4]
+
+    _check(before, after)
+
+
 def test_memory_to_local():
     """Test memory → local: copy from memory to cast buffer, then compute."""
 

@@ -299,6 +299,14 @@ def extract_if_condition(stmt: Stmt) -> tuple[tirx.PrimExpr | None, Stmt]:
 CastEntry = tuple[Buffer, list[tirx.PrimExpr], Buffer]
 
 
+def _normalized_loop_index(loop: For, loop_var: Var) -> tirx.PrimExpr:
+    """Map a loop variable value to a zero-based staging-buffer index."""
+    index = loop_var if isinstance(loop.min, IntImm) and loop.min.value == 0 else loop_var - loop.min
+    if loop.step is not None and not (isinstance(loop.step, IntImm) and loop.step.value == 1):
+        index = index // loop.step
+    return index
+
+
 def _buf_indices_match(
     buf_a: Buffer,
     indices_a: list[tirx.PrimExpr],
@@ -434,7 +442,7 @@ class DecoupleTypeCastMutator(tirx.PyStmtExprMutator):
         load_replacement_entries = store_entries + load_entries
         compute_body = normalized_body
         if store_entries or load_entries:
-            compute_body = self._replace_access(compute_body, store_entries, load_replacement_entries, op.loop_var)
+            compute_body = self._replace_access(compute_body, store_entries, load_replacement_entries, op)
         compute_loop = self._make_vectorized_loop(op, compute_body)
 
         # Build copy-to-memory loops (after compute)
@@ -513,17 +521,18 @@ class DecoupleTypeCastMutator(tirx.PyStmtExprMutator):
             # Substitute loop_var with copy_var in original indices
             new_indices = [substitute(idx, {op.loop_var: copy_var}) for idx in orig_indices]
 
+            local_index = _normalized_loop_index(op, copy_var)
             if direction == "to_memory":
                 copy_store: Stmt = BufferStore(
                     orig_buffer,
-                    BufferLoad(cast_buffer, [copy_var]),
+                    BufferLoad(cast_buffer, [local_index]),
                     new_indices,
                 )
             else:
                 copy_store = BufferStore(
                     cast_buffer,
                     BufferLoad(orig_buffer, new_indices),
-                    [copy_var],
+                    [local_index],
                 )
 
             # Wrap with condition if present
@@ -568,9 +577,14 @@ class DecoupleTypeCastMutator(tirx.PyStmtExprMutator):
         )
         return SBlockRealize([], True, block)
 
-    def _replace_access(self, stmt: Stmt, store_entries: list[CastEntry], load_entries: list[CastEntry], loop_var: Var) -> Stmt:
+    def _replace_access(self, stmt: Stmt, store_entries: list[CastEntry], load_entries: list[CastEntry], loop: For) -> Stmt:
         """Replace memory accesses with cast buffer accesses."""
-        replacer = AccessReplacer(store_entries, load_entries, loop_var)
+        replacer = AccessReplacer(
+            store_entries,
+            load_entries,
+            loop.loop_var,
+            _normalized_loop_index(loop, loop.loop_var),
+        )
         return replacer.visit_stmt(stmt)
 
 
@@ -582,17 +596,24 @@ class AccessReplacer(tirx.PyStmtExprMutator):
     like a[i] and a[i+32] from the same buffer map to different cast buffers.
     """
 
-    def __init__(self, store_entries: list[CastEntry], load_entries: list[CastEntry], loop_var: Var):
+    def __init__(
+        self,
+        store_entries: list[CastEntry],
+        load_entries: list[CastEntry],
+        loop_var: Var,
+        local_index: tirx.PrimExpr,
+    ):
         super().__init__()
         self.store_entries = store_entries
         self.load_entries = load_entries
         self.loop_var = loop_var
+        self.local_index = local_index
 
     def visit_buffer_store_(self, op: BufferStore) -> Stmt:
         new_value = self.visit_expr(op.value)
         cast_buf = _find_cast_entry(self.store_entries, op.buffer, list(op.indices))
         if cast_buf is not None:
-            return BufferStore(cast_buf, new_value, [self.loop_var])
+            return BufferStore(cast_buf, new_value, [self.local_index])
         if new_value is not op.value:
             return BufferStore(op.buffer, new_value, list(op.indices))
         return op
@@ -600,7 +621,7 @@ class AccessReplacer(tirx.PyStmtExprMutator):
     def visit_buffer_load_(self, op: BufferLoad) -> tirx.PrimExpr:
         cast_buf = _find_cast_entry(self.load_entries, op.buffer, list(op.indices))
         if cast_buf is not None:
-            return BufferLoad(cast_buf, [self.loop_var])
+            return BufferLoad(cast_buf, [self.local_index])
         return op
 
 
