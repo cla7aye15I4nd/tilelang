@@ -145,6 +145,19 @@ def _contains_seq_stmt(stmt: Stmt) -> bool:
     return found
 
 
+def _contains_if_stmt(stmt: Stmt) -> bool:
+    """Check whether a statement contains conditional control flow."""
+    found = False
+
+    def visitor(node) -> None:
+        nonlocal found
+        if isinstance(node, IfThenElse):
+            found = True
+
+    post_order_visit(stmt, visitor)
+    return found
+
+
 def _expr_depends_on_var(expr: tirx.PrimExpr, var: Var) -> bool:
     """Check if an expression references the given Var."""
     found = False
@@ -402,7 +415,9 @@ class DecoupleTypeCastMutator(tirx.PyStmtExprMutator):
         extent = op.extent.value
 
         # Extract condition (from normalized body for correctness)
-        condition, _ = extract_if_condition(normalized_body)
+        condition, conditional_body = extract_if_condition(normalized_body)
+        if (condition is None and _contains_if_stmt(normalized_body)) or (condition is not None and _contains_if_stmt(conditional_body)):
+            return self._make_for(op, new_body) if new_body is not op.body else op
 
         # Create cast entries for stores and loads
         store_entries = self._create_cast_entries(collector.stores, extent)

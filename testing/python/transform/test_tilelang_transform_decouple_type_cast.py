@@ -244,6 +244,31 @@ def test_local_to_memory_with_branch_local_bind():
     _check(before, after)
 
 
+def test_if_else_is_not_decoupled_without_branch_predicates():
+    @T.prim_func
+    def before(b: T.Tensor[(16,), T.float8_e4m3fn]):
+        a_frag = T.alloc_local((16,), T.float32)
+        for i in T.vectorized(16):
+            if i < 8:
+                b[i] = a_frag[i]
+            else:
+                b[i] = -a_frag[i]
+
+    _check(before, before)
+
+
+def test_nested_condition_is_not_decoupled_without_branch_predicates():
+    @T.prim_func
+    def before(b: T.Tensor[(16,), T.float8_e4m3fn]):
+        a_frag = T.alloc_local((16,), T.float32)
+        for i in T.vectorized(16):
+            if i < 12:  # noqa: SIM102 - exercise nested TIR control flow
+                if i >= 4:
+                    b[i] = a_frag[i]
+
+    _check(before, before)
+
+
 def test_cast_buffers_wrapped_in_lexical_alloc_scope():
     """The pass must wrap cast buffers in a block annotated with
     lexical_alloc_scope, so StorageRewrite keeps them scoped to the use site."""
