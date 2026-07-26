@@ -796,6 +796,11 @@ ParallelOpNode::ComputePlanCandidate(const LayoutInferArgs &layout_args) const {
   if (auto coalesced_width = root_->annotations.Get(attr::kCoalescedWidth)) {
     if (const auto *imm = coalesced_width->as<IntImmNode>()) {
       int expected = imm->value;
+      // A zero (or negative) coalesced width would make the divisibility
+      // computation below a modulo-by-zero (an uncatchable SIGFPE) or yield a
+      // negative vector size. Reject it with a clear, catchable diagnostic.
+      ICHECK_GT(expected, 0)
+          << "coalesced_width must be a positive integer, but got " << expected;
       // Verify that vector_size is divisible by expected
       if (vector_size % expected != 0) {
         LOG(FATAL) << "Vector size " << vector_size
